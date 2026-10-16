@@ -1,0 +1,17 @@
+/outputs/
+/work/
+/dist/
+**/bin/
+**/obj/
+**/__pycache__/
+*.pyc
+*.luma
+*.zip
+*.log
+.vs/
+.idea/
+.vscode/
+.env
+.env.*
+settings.json
+runtime.json

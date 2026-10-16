@@ -1,0 +1,58 @@
+name: Build and release Windows pet
+
+on:
+  push:
+    branches: [main]
+    paths: [release-version.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lumina-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check version is new
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content -Raw release-version.txt).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version' }
+          gh release view "v$version" --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'Release already exists; choose a new version' }
+          $global:LASTEXITCODE = 0
+      - name: Install build-time image tools
+        run: python -m pip install -r requirements-build.txt
+      - name: Build app and all transparent animation frames
+        run: python scripts/build_all.py
+      - name: Verify and package two complementary ZIPs
+        run: python scripts/package_github.py
+      - name: Upload and publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content -Raw release-version.txt).Trim()
+          gh release create "v$version" --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Lumina Pet v$version" --notes-file docs/RELEASE-v4.md --draft
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create draft release' }
+          Get-ChildItem dist -File | ForEach-Object {
+            gh release upload "v$version" $_.FullName --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE -ne 0) { throw 'Asset upload failed; release remains a draft' }
+          }
+          gh release edit "v$version" --repo $env:GITHUB_REPOSITORY --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish release' }
